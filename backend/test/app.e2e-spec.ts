@@ -4,9 +4,12 @@ import request from "supertest";
 import { DataSource } from "typeorm";
 import { AppModule } from "../src/app.module";
 import { BikeEntity } from "../src/bikes/entities/bike.entity";
+import type { BikeResponseDto } from "../src/bikes/dto/bike-response.dto";
+import type { PaginatedBikesResponseDto } from "../src/bikes/dto/paginated-bikes-response.dto";
 import { configureApp } from "../src/configure-app";
 import type { PurchasedBikeSellResponseDto } from "../src/customers/dto/bike-sell-response.dto";
 import type { CustomerResponseDto } from "../src/customers/dto/customer-response.dto";
+import type { PaginatedCustomersResponseDto } from "../src/customers/dto/paginated-customers-response.dto";
 import { BikeSellEntity } from "../src/customers/entities/bike-sell.entity";
 import { CustomerEntity } from "../src/customers/entities/customer.entity";
 import { databaseOptions } from "../src/database/database-options";
@@ -19,6 +22,20 @@ const validCustomer = {
   firstName: "  Zoé  ",
   lastName: "Moreau",
   email: " ZOE@EXAMPLE.COM ",
+};
+
+const validBike = {
+  brand: "Specialized",
+  model: "Allez Sport",
+  description: "A fast and light road bike for sport enthusiasts.",
+  category: "road",
+  frameMaterial: "aluminium",
+  frameSizeCm: 56,
+  wheelSizeInches: 28,
+  gearCount: 18,
+  weightKg: 9.5,
+  electric: false,
+  priceCents: 149900,
 };
 
 describe("Bike shop API", () => {
@@ -77,9 +94,14 @@ describe("Bike shop API", () => {
     const all = await request(app.getHttpServer())
       .get("/customers")
       .expect(200);
-    expect(
-      (all.body as CustomerResponseDto[]).map((item) => item.lastName),
-    ).toEqual(["Bernard", "Durand", "Martin", "Moreau"]);
+    const paginated = all.body as PaginatedCustomersResponseDto;
+    expect(paginated.totalCount).toBe(4);
+    expect(paginated.customers.map((item) => item.lastName)).toEqual([
+      "Bernard",
+      "Durand",
+      "Martin",
+      "Moreau",
+    ]);
     await request(app.getHttpServer())
       .patch(`/customers/${customer.id}`)
       .send({ city: "Paris", phone: "0600000000" })
@@ -100,6 +122,48 @@ describe("Bike shop API", () => {
     await request(app.getHttpServer())
       .get(`/customers/${customer.id}`)
       .expect(404);
+  });
+
+  it("supports customer pagination with validation and out-of-bounds pages", async () => {
+    const page1 = await request(app.getHttpServer())
+      .get("/customers?page=1&limit=2")
+      .expect(200);
+    const p1Body = page1.body as PaginatedCustomersResponseDto;
+    expect(p1Body.totalCount).toBe(3);
+    expect(p1Body.customers).toHaveLength(2);
+    expect(p1Body.customers.map((c) => c.lastName)).toEqual([
+      "Bernard",
+      "Durand",
+    ]);
+
+    const page2 = await request(app.getHttpServer())
+      .get("/customers?page=2&limit=2")
+      .expect(200);
+    const p2Body = page2.body as PaginatedCustomersResponseDto;
+    expect(p2Body.totalCount).toBe(3);
+    expect(p2Body.customers).toHaveLength(1);
+    expect(p2Body.customers[0].lastName).toBe("Martin");
+
+    const pageBeyond = await request(app.getHttpServer())
+      .get("/customers?page=5&limit=10")
+      .expect(200);
+    const pBeyondBody = pageBeyond.body as PaginatedCustomersResponseDto;
+    expect(pBeyondBody.totalCount).toBe(3);
+    expect(pBeyondBody.customers).toEqual([]);
+
+    for (const qs of [
+      "page=0",
+      "page=-1",
+      "page=1.5",
+      "page=invalid",
+      "limit=0",
+      "limit=-5",
+      "limit=51",
+      "limit=invalid",
+      "unknownParam=true",
+    ]) {
+      await request(app.getHttpServer()).get(`/customers?${qs}`).expect(400);
+    }
   });
 
   it("enforces email uniqueness on creation and update", async () => {
@@ -286,9 +350,97 @@ describe("Bike shop API", () => {
     expect(await database.getRepository(BikeEntity).count()).toBe(4);
   });
 
-  it("exposes no bike catalogue routes or Hello World route", async () => {
-    await request(app.getHttpServer()).get("/bikes").expect(404);
-    await request(app.getHttpServer()).post("/bikes").send({}).expect(404);
+  it("manages the bike catalogue: create, list, read, update, delete with conflict protection", async () => {
+    const listResponse = await request(app.getHttpServer())
+      .get("/bikes")
+      .expect(200);
+    const paginated = listResponse.body as PaginatedBikesResponseDto;
+    expect(paginated.totalCount).toBe(4);
+    expect(paginated.bikes).toHaveLength(4);
+
+    const page2 = await request(app.getHttpServer())
+      .get("/bikes?page=2&limit=2")
+      .expect(200);
+    const p2Body = page2.body as PaginatedBikesResponseDto;
+    expect(p2Body.totalCount).toBe(4);
+    expect(p2Body.bikes).toHaveLength(2);
+
+    const createRes = await request(app.getHttpServer())
+      .post("/bikes")
+      .send(validBike)
+      .expect(201);
+    const created = createRes.body as BikeResponseDto;
+    expect(created).toMatchObject({
+      brand: "Specialized",
+      model: "Allez Sport",
+      frameSizeCm: 56,
+      wheelSizeInches: 28,
+      gearCount: 18,
+      weightKg: 9.5,
+      electric: false,
+      priceCents: 149900,
+    });
+    expect(created.id).toMatch(/^[0-9a-f-]{36}$/);
+
+    for (const invalid of [
+      {},
+      { ...validBike, brand: "" },
+      { ...validBike, priceCents: -100 },
+      { ...validBike, gearCount: 0 },
+      { ...validBike, frameSizeCm: -1 },
+      { ...validBike, electric: "not-bool" },
+      { ...validBike, unexpected: 123 },
+    ]) {
+      await request(app.getHttpServer())
+        .post("/bikes")
+        .send(invalid)
+        .expect(400);
+    }
+
+    await request(app.getHttpServer())
+      .get(`/bikes/${created.id}`)
+      .expect(200, created);
+
+    await request(app.getHttpServer()).get(`/bikes/${missingId}`).expect(404);
+    await request(app.getHttpServer()).get("/bikes/invalid-uuid").expect(400);
+
+    const patchRes = await request(app.getHttpServer())
+      .patch(`/bikes/${created.id}`)
+      .send({ priceCents: 139900, brand: " Specialized S-Works " })
+      .expect(200);
+    expect(patchRes.body).toMatchObject({
+      brand: "Specialized S-Works",
+      priceCents: 139900,
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/bikes/${created.id}`)
+      .send({})
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/bikes/${created.id}`)
+      .send({ priceCents: -50 })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/bikes/${missingId}`)
+      .send({ priceCents: 1000 })
+      .expect(404);
+
+    await request(app.getHttpServer()).delete(`/bikes/${bikeId}`).expect(409);
+
+    await request(app.getHttpServer())
+      .delete(`/bikes/${created.id}`)
+      .expect(204);
+
+    await request(app.getHttpServer()).get(`/bikes/${created.id}`).expect(404);
+
+    await request(app.getHttpServer())
+      .delete(`/bikes/${missingId}`)
+      .expect(404);
+    await request(app.getHttpServer())
+      .delete("/bikes/invalid-uuid")
+      .expect(400);
+
     await request(app.getHttpServer()).get("/").expect(404);
   });
 });

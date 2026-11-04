@@ -28,12 +28,10 @@ export const Layout = () => {
           paddingTop: ".5rem",
         }}
       >
-        <Row>
-          <Col>
-            <Title style={{ margin: 0 }}>Bikez.ai</Title>
+        <Row align="middle" wrap={false}>
+          <Col flex="none"><Title style={{ margin: 0 }}>Bikez.ai</Title>
           </Col>
-          <Col>
-            <AppMenu />
+          <Col flex="auto" style={{ minWidth: 0 }}><AppMenu />
           </Col>
         </Row>
       </header>
@@ -41,3 +39,4 @@ export const Layout = () => {
     </div>
   );
 };
+

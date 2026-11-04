@@ -23,7 +23,7 @@ export const HomePage = () => {
       </div>
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
+        <Col xs={24} md={8}>
           <Card
             title={
               <Space>
@@ -42,7 +42,25 @@ export const HomePage = () => {
             </ButtonLink>
           </Card>
         </Col>
-        <Col xs={24} md={12}>
+        <Col xs={24} md={8}>
+          <Card
+            title={
+              <Space>
+                <ShoppingOutlined />
+                Bicycles
+              </Space>
+            }
+            style={{ height: "100%" }}
+          >
+            <Paragraph>
+              Manage your bicycle catalog, view technical specifications, and add new models.
+            </Paragraph>
+            <ButtonLink to="/bikes" type="primary">
+              See bicycles
+            </ButtonLink>
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
           <Card
             title={
               <Space>
@@ -62,3 +80,4 @@ export const HomePage = () => {
     </div>
   );
 };
+

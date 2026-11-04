@@ -14,6 +14,7 @@ import type {
 import type {
   CreateCustomerModel,
   CustomerModel,
+  PaginatedCustomersModel,
   UpdateCustomerModel,
 } from "./models/customer.model";
 import {
@@ -29,8 +30,11 @@ export class CustomersService {
     private readonly repository: CustomersRepository,
   ) {}
 
-  findAll(): Promise<CustomerModel[]> {
-    return this.repository.findAll();
+  findAll(
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<PaginatedCustomersModel> {
+    return this.repository.findAll(page, limit);
   }
 
   async findById(id: string): Promise<CustomerModel> {
